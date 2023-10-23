@@ -26,7 +26,7 @@ async def setup_agent():
     user_proxy = autogen.UserProxyAgent(
                         name="user_proxy",
                         human_input_mode="NEVER",
-                        max_consecutive_auto_reply=1,
+                        max_consecutive_auto_reply=2,
                         is_termination_msg=lambda x: x.get("content", "").rstrip().endswith("TERMINATE") or x.get("content", "").strip() == "",
                         code_execution_config={
                             "work_dir": "coding",
@@ -36,42 +36,32 @@ async def setup_agent():
     cl.user_session.set('user_proxy', user_proxy)
     await cl.Message(content=f"Start chatting with code interpreter").send()
 
-@cl.on_file_upload(accept=["text/plain"], max_files=3, max_size_mb=2)
-async def upload_file(files: any):
-    """
-    Handle uploaded files.
-
-    Args:
-        files (list): List of uploaded file data.
-
-    Example:
-        [{
-            "name": "example.txt",
-            "content": b"File content as bytes",
-            "type": "text/plain"
-        }]
-    """
-    for file_data in files:
-        file_name = file_data["name"]
-        content = file_data["content"]
-        # If want to show content Content: {content.decode('utf-8')}\n\n
-        await cl.Message(content=f"Uploaded file: {file_name}\n").send()
-        
-        # Save the file locally
-        with open(file_name, "wb") as file:
-            file.write(content)
-
-
 
 @cl.on_message
-async def run_conversation(user_message: str):
-    print('CONVERSATION')
+async def run_conversation(msg: cl.Message):
     # check if user message changed
+    user_message = msg.content
     if user_message == cl.user_session.get('user_message'):
         return
     assistant = cl.user_session.get('assistant')
     user_proxy = cl.user_session.get('user_proxy')
     cur_iter = 0
+    if msg.elements:
+        for element in msg.elements:
+            file_name = element.name
+            content = element.content
+            # If want to show content Content: {content.decode('utf-8')}\n\n
+            await cl.Message(content=f"Uploaded file: {file_name}\n").send()
+
+            # Save the file locally
+            with open(os.path.join("coding", file_name), "wb") as file:
+                file.write(content)
+            user_proxy.send(
+                recipient=assistant,
+                message=f"User uploaded file: {file_name}",
+            )
+    print('CONVERSATION')
+
     while cur_iter < MAX_ITER:
         if len(assistant.chat_messages[user_proxy]) == 0 :
             print('initiating chat')
